@@ -2,6 +2,15 @@
 
 import { useEffect, useState } from "react";
 
+const AUTH_HEADER = "x-access-code";
+const STORAGE_KEY = "leaderboard_access_code";
+
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const code = sessionStorage.getItem(STORAGE_KEY);
+  return code ? { [AUTH_HEADER]: code } : {};
+}
+
 interface GolferScore {
   name: string;
   score: number | null;
@@ -29,8 +38,12 @@ interface ApiResponse {
 }
 
 export default function Home() {
+  const [authRequired, setAuthRequired] = useState<boolean | null>(null);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [accessCode, setAccessCode] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
   const [data, setData] = useState<ApiResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [golferStatus, setGolferStatus] = useState<
     Record<
@@ -40,11 +53,49 @@ export default function Home() {
   >(null);
   const [holesLoading, setHolesLoading] = useState(false);
 
+  useEffect(() => {
+    fetch("/api/auth/status")
+      .then((r) => r.json())
+      .then(({ authRequired }) => {
+        setAuthRequired(authRequired);
+        if (authRequired && typeof window !== "undefined" && sessionStorage.getItem(STORAGE_KEY)) {
+          setAuthenticated(true);
+        } else if (!authRequired) {
+          setAuthenticated(true);
+        }
+      })
+      .catch(() => setAuthRequired(false));
+  }, []);
+
+  const verifyAccessCode = async () => {
+    setAuthError(null);
+    const res = await fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", [AUTH_HEADER]: accessCode },
+      body: JSON.stringify({ code: accessCode }),
+    });
+    if (res.ok) {
+      if (typeof window !== "undefined") sessionStorage.setItem(STORAGE_KEY, accessCode);
+      setAuthenticated(true);
+      setAccessCode("");
+    } else {
+      const json = await res.json();
+      setAuthError(json.error || "Invalid access code");
+    }
+  };
+
   const fetchData = async (includeRounds = false) => {
     try {
       const url = includeRounds ? "/api/golf?rounds=1" : "/api/golf";
-      const res = await fetch(url);
+      const res = await fetch(url, { headers: getAuthHeaders() });
       const json = await res.json();
+      if (res.status === 401) {
+        if (typeof window !== "undefined") sessionStorage.removeItem(STORAGE_KEY);
+        setAuthenticated(false);
+        setAuthError(json.error || "Access code required");
+        setData(null);
+        return;
+      }
       if (!res.ok) {
         setError(json.error || "Failed to load");
         if (json.hint) setError((e) => `${e}. ${json.hint}`);
@@ -81,8 +132,14 @@ export default function Home() {
   const fetchHoles = async () => {
     setHolesLoading(true);
     try {
-      const res = await fetch("/api/golf/holes");
+      const res = await fetch("/api/golf/holes", { headers: getAuthHeaders() });
       const json = await res.json();
+      if (res.status === 401) {
+        if (typeof window !== "undefined") sessionStorage.removeItem(STORAGE_KEY);
+        setAuthenticated(false);
+        setData(null);
+        return;
+      }
       if (res.ok) setGolferStatus(json.golferStatus ?? {});
     } catch {
       setGolferStatus(null);
@@ -91,17 +148,52 @@ export default function Home() {
     }
   };
 
-  useEffect(() => {
-    fetchData();
-    fetchData(true);
-    fetchHoles();
-    const interval = setInterval(() => fetchData(), 15 * 60 * 1000);
-    const roundsInterval = setInterval(() => fetchData(true), 2 * 60 * 60 * 1000);
-    return () => {
-      clearInterval(interval);
-      clearInterval(roundsInterval);
-    };
-  }, []);
+  if (authRequired === null) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6">
+        <div className="inline-block w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-400 rounded-full animate-spin" />
+      </main>
+    );
+  }
+
+  if (authRequired && !authenticated) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-slate-800/50 border border-slate-600 rounded-2xl p-8">
+          <h1 className="text-xl font-bold text-white mb-2 text-center">Access Required</h1>
+          <p className="text-slate-400 text-sm mb-4 text-center">
+            Enter the access code to load the leaderboard.
+          </p>
+          <input
+            type="password"
+            value={accessCode}
+            onChange={(e) => setAccessCode(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && verifyAccessCode()}
+            placeholder="Access code"
+            className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 mb-2"
+            autoComplete="off"
+          />
+          {authError && <p className="text-amber-400 text-sm mb-2">{authError}</p>}
+          <button
+            onClick={verifyAccessCode}
+            disabled={!accessCode.trim()}
+            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+          >
+            Continue
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  const handleRefresh = async () => {
+    setLoading(true);
+    setError(null);
+    await fetchData();
+    await fetchData(true);
+    await fetchHoles();
+    setLoading(false);
+  };
 
   if (loading && !data) {
     return (
@@ -135,6 +227,24 @@ export default function Home() {
     );
   }
 
+  if (!data && !loading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-white mb-2">Fantasy Draft Order</h1>
+          <p className="text-slate-400 mb-6">Click to load the leaderboard from the API</p>
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+          >
+            Load Leaderboard
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   if (!data?.participants?.length) {
     return (
       <main className="min-h-screen flex items-center justify-center p-6">
@@ -160,8 +270,27 @@ export default function Home() {
           <p className="text-slate-400 text-lg">
             {data.tournament?.name || "PGA Players Championship"} • Lowest combined score = 1st pick
           </p>
-          <p className="text-slate-500 text-sm mt-2">
-            Last updated {data.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString() : "—"} • Refreshes every 15 min (API limit)
+          <p className="text-slate-500 text-sm mt-2 flex items-center justify-center gap-4 flex-wrap">
+            <span>Last updated {data.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString() : "—"}</span>
+            {authRequired && (
+              <button
+                onClick={() => {
+                  sessionStorage.removeItem(STORAGE_KEY);
+                  setAuthenticated(false);
+                  setData(null);
+                }}
+                className="text-slate-500 hover:text-slate-400 text-xs"
+              >
+                Log out
+              </button>
+            )}
+            <button
+              onClick={handleRefresh}
+              disabled={loading}
+              className="px-4 py-1.5 bg-slate-600 hover:bg-slate-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              {loading ? "Refreshing…" : "Refresh"}
+            </button>
           </p>
         </header>
 
@@ -330,15 +459,7 @@ export default function Home() {
           >
             {holesLoading ? "Loading..." : "Check holes & progress"}
           </button>
-          <p className="text-slate-500 text-xs mt-2">
-            Holes & round info auto-load on page load • ~40 API calls per refresh
-          </p>
         </div>
-
-        {/* Footer */}
-        <footer className="mt-12 text-center text-slate-500 text-sm">
-          <p>Data from Slash Golf API (RapidAPI) • Refreshes every 15 min • Round scores every 2 hrs</p>
-        </footer>
       </div>
     </main>
   );

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PARTICIPANTS } from "@/config/participants";
+import { requireAuth } from "@/lib/auth";
 
 const RAPIDAPI_BASE = "https://live-golf-data.p.rapidapi.com";
 
@@ -38,6 +39,9 @@ function namesMatch(apiFirst: string, apiLast: string, configName: string): bool
 }
 
 export async function GET(request: NextRequest) {
+  const authError = requireAuth(request);
+  if (authError) return authError;
+
   const apiKey = process.env.RAPIDAPI_KEY;
   if (!apiKey) {
     return NextResponse.json({ error: "RAPIDAPI_KEY not configured" }, { status: 500 });
