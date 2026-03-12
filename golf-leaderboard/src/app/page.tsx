@@ -361,9 +361,29 @@ export default function Home() {
           </p>
         </header>
 
-        {/* Leaderboard */}
+        {/* Leaderboard - sort by totalParRelative ascending (most under par first) */}
         <div className="space-y-4">
-          {data.participants.map((p, idx) => (
+          {[...data.participants]
+            .sort((a, b) => {
+              const pa = a.totalParRelative;
+              const pb = b.totalParRelative;
+              if (pa != null && pb != null) return pa - pb;
+              if (pa == null && pb == null) {
+                const round4Started = data.tournament?.round4Started ?? false;
+                const getContrib = (g: GolferScore) => {
+                  const par = g.parRelative ?? 0;
+                  const rs = g.roundScores;
+                  if (!rs || rs.length < 4) return par;
+                  const [r1, r2, r3, r4] = rs;
+                  const missedCut = r1 !== null && r2 !== null && r3 === null && r4 === null && round4Started;
+                  return missedCut ? par + 20 : par;
+                };
+                return a.golfers.reduce((s, g) => s + getContrib(g), 0) - b.golfers.reduce((s, g) => s + getContrib(g), 0);
+              }
+              return pa == null ? 1 : -1;
+            })
+            .map((p, idx) => ({ ...p, rank: idx + 1 }))
+            .map((p) => (
             <div
               key={p.name}
               className="bg-slate-800/60 border border-slate-600/50 rounded-xl overflow-hidden shadow-xl hover:border-slate-500/50 transition-colors"
@@ -388,7 +408,7 @@ export default function Home() {
                     <p className="text-slate-400 text-sm">
                       Draft pick #{p.rank} •{" "}
                       {p.totalParRelative !== null
-                        ? `Total: ${formatScore(p.totalParRelative)} to par`
+                        ? `Total: ${formatScore(p.totalParRelative)}`
                         : (() => {
                             const round4Started = data.tournament?.round4Started ?? false;
                             const hasParRelative = (g: GolferScore) => g.parRelative !== null;
@@ -403,7 +423,7 @@ export default function Home() {
                             const withPar = p.golfers.filter(hasParRelative);
                             const partial = withPar.reduce((s, g) => s + getGolferParContrib(g), 0);
                             return withPar.length > 0
-                              ? `${formatScore(partial)} to par (${withPar.length}/4) • In progress`
+                              ? `${formatScore(partial)} • In progress`
                               : "In progress";
                           })()}
                     </p>
@@ -431,13 +451,7 @@ export default function Home() {
                         })()}
                   </span>
                   <p className="text-slate-500 text-xs">
-                    To par
-                    {p.totalParRelative === null &&
-                      (() => {
-                        const hasParRelative = (g: GolferScore) => g.parRelative !== null;
-                        const withPar = p.golfers.filter(hasParRelative);
-                        return withPar.length > 0 && ` (${withPar.length}/4)`;
-                      })()}
+                    Score
                   </p>
                 </div>
               </div>
@@ -455,12 +469,18 @@ export default function Home() {
                           {g.name}
                         </span>
                         <span className="font-mono font-medium">
-                          {g.score !== null ? g.score : "—"}
-                          {g.parRelative !== null && (
-                            <span className="text-slate-500 ml-1">
-                              ({formatScore(g.parRelative)})
-                            </span>
-                          )}
+                          {(() => {
+                            const strokes =
+                              g.score ??
+                              (g.roundScores?.some((r) => r !== null)
+                                ? (g.roundScores?.reduce((s, r) => s + (r ?? 0), 0) ?? null)
+                                : null);
+                            const par = g.parRelative;
+                            if (strokes != null && par != null) return `${strokes} (${formatScore(par)})`;
+                            if (strokes != null) return String(strokes);
+                            if (par != null) return `(${formatScore(par)})`;
+                            return "—";
+                          })()}
                         </span>
                       </div>
                       <div className="text-xs text-slate-500 space-y-0.5">
@@ -471,7 +491,7 @@ export default function Home() {
                               R3:{g.roundScores[2] ?? "—"} R4:{g.roundScores[3] ?? "—"}
                             </span>
                             <span className="text-slate-600 ml-1">
-                              • To par (missed cut: +10 R3/R4)
+                              • Missed cut: +10 R3/R4
                             </span>
                           </div>
                         )}
