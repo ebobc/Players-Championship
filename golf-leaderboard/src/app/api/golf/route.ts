@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PARTICIPANTS } from "@/config/participants";
-import { requireAuth } from "@/lib/auth";
+import { hasValidAuth } from "@/lib/auth";
+import { getGolfCache, setGolfCache } from "@/lib/cache";
 
 const RAPIDAPI_BASE = "https://live-golf-data.p.rapidapi.com";
 
@@ -200,8 +201,20 @@ async function fetchLeaderboard(tournId: string, year: number, apiKey: string, r
 }
 
 export async function GET(request: NextRequest) {
-  const authError = requireAuth(request);
-  if (authError) return authError;
+  const isOwner = hasValidAuth(request);
+
+  if (!isOwner) {
+    const cached = await getGolfCache();
+    if (cached) {
+      return NextResponse.json(cached);
+    }
+    return NextResponse.json({
+      tournament: null,
+      participants: [],
+      lastUpdated: null,
+      cached: false,
+    });
+  }
 
   const apiKey = process.env.RAPIDAPI_KEY;
 
@@ -397,7 +410,7 @@ export async function GET(request: NextRequest) {
 
     const tournamentName = leaderboardData.tournamentName ?? leaderboardData.name ?? "PGA Tour";
 
-    return NextResponse.json({
+    const response = {
       tournament: {
         id: tournId,
         name: tournamentName,
@@ -406,7 +419,9 @@ export async function GET(request: NextRequest) {
       },
       participants: participantResults,
       lastUpdated: new Date().toISOString(),
-    });
+    };
+    await setGolfCache(response);
+    return NextResponse.json(response);
   } catch (err) {
     console.error("Golf API error:", err);
     const msg = err instanceof Error ? err.message : "Failed to fetch golf data";

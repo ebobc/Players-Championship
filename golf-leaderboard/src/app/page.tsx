@@ -42,6 +42,7 @@ export default function Home() {
   const [authenticated, setAuthenticated] = useState(false);
   const [accessCode, setAccessCode] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [showOwnerForm, setShowOwnerForm] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +68,25 @@ export default function Home() {
       .catch(() => setAuthRequired(false));
   }, []);
 
+  useEffect(() => {
+    fetch("/api/golf")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.participants?.length) {
+          setData(json);
+        }
+      })
+      .catch(() => {});
+    fetch("/api/golf/holes")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.golferStatus && Object.keys(json.golferStatus).length > 0) {
+          setGolferStatus(json.golferStatus);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const verifyAccessCode = async () => {
     setAuthError(null);
     const res = await fetch("/api/auth/verify", {
@@ -77,6 +97,7 @@ export default function Home() {
     if (res.ok) {
       if (typeof window !== "undefined") sessionStorage.setItem(STORAGE_KEY, accessCode);
       setAuthenticated(true);
+      setShowOwnerForm(false);
       setAccessCode("");
     } else {
       const json = await res.json();
@@ -93,7 +114,6 @@ export default function Home() {
         if (typeof window !== "undefined") sessionStorage.removeItem(STORAGE_KEY);
         setAuthenticated(false);
         setAuthError(json.error || "Access code required");
-        setData(null);
         return;
       }
       if (!res.ok) {
@@ -137,7 +157,6 @@ export default function Home() {
       if (res.status === 401) {
         if (typeof window !== "undefined") sessionStorage.removeItem(STORAGE_KEY);
         setAuthenticated(false);
-        setData(null);
         return;
       }
       if (res.ok) setGolferStatus(json.golferStatus ?? {});
@@ -148,44 +167,6 @@ export default function Home() {
     }
   };
 
-  if (authRequired === null) {
-    return (
-      <main className="min-h-screen flex items-center justify-center p-6">
-        <div className="inline-block w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-400 rounded-full animate-spin" />
-      </main>
-    );
-  }
-
-  if (authRequired && !authenticated) {
-    return (
-      <main className="min-h-screen flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-slate-800/50 border border-slate-600 rounded-2xl p-8">
-          <h1 className="text-xl font-bold text-white mb-2 text-center">Access Required</h1>
-          <p className="text-slate-400 text-sm mb-4 text-center">
-            Enter the access code to load the leaderboard.
-          </p>
-          <input
-            type="password"
-            value={accessCode}
-            onChange={(e) => setAccessCode(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && verifyAccessCode()}
-            placeholder="Access code"
-            className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 mb-2"
-            autoComplete="off"
-          />
-          {authError && <p className="text-amber-400 text-sm mb-2">{authError}</p>}
-          <button
-            onClick={verifyAccessCode}
-            disabled={!accessCode.trim()}
-            className="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
-          >
-            Continue
-          </button>
-        </div>
-      </main>
-    );
-  }
-
   const handleRefresh = async () => {
     setLoading(true);
     setError(null);
@@ -194,6 +175,14 @@ export default function Home() {
     await fetchHoles();
     setLoading(false);
   };
+
+  if (authRequired === null && !data) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6">
+        <div className="inline-block w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-400 rounded-full animate-spin" />
+      </main>
+    );
+  }
 
   if (loading && !data) {
     return (
@@ -230,16 +219,57 @@ export default function Home() {
   if (!data && !loading) {
     return (
       <main className="min-h-screen flex items-center justify-center p-6">
-        <div className="text-center">
+        <div className="text-center max-w-md">
           <h1 className="text-2xl font-bold text-white mb-2">Fantasy Draft Order</h1>
-          <p className="text-slate-400 mb-6">Click to load the leaderboard from the API</p>
-          <button
-            onClick={handleRefresh}
-            disabled={loading}
-            className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
-          >
-            Load Leaderboard
-          </button>
+          <p className="text-slate-400 mb-6">No data yet. The owner needs to load the leaderboard.</p>
+          {authRequired && !authenticated ? (
+            showOwnerForm ? (
+              <div className="bg-slate-800/50 border border-slate-600 rounded-2xl p-6 text-left">
+                <h2 className="text-lg font-semibold text-white mb-2">Owner login</h2>
+                <p className="text-slate-400 text-sm mb-3">Enter the access code to load and update the leaderboard.</p>
+                <input
+                  type="password"
+                  value={accessCode}
+                  onChange={(e) => setAccessCode(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && verifyAccessCode()}
+                  placeholder="Access code"
+                  className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 mb-2"
+                  autoComplete="off"
+                />
+                {authError && <p className="text-amber-400 text-sm mb-2">{authError}</p>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={verifyAccessCode}
+                    disabled={!accessCode.trim()}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+                  >
+                    Continue
+                  </button>
+                  <button
+                    onClick={() => { setShowOwnerForm(false); setAuthError(null); }}
+                    className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white font-medium rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowOwnerForm(true)}
+                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg transition-colors"
+              >
+                Owner login to load
+              </button>
+            )
+          ) : (
+            <button
+              onClick={handleRefresh}
+              disabled={loading}
+              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+            >
+              Load Leaderboard
+            </button>
+          )}
         </div>
       </main>
     );
@@ -272,25 +302,43 @@ export default function Home() {
           </p>
           <p className="text-slate-500 text-sm mt-2 flex items-center justify-center gap-4 flex-wrap">
             <span>Last updated {data.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString() : "—"}</span>
-            {authRequired && (
+            {authRequired && authenticated && (
+              <>
+                <button
+                  onClick={() => {
+                    sessionStorage.removeItem(STORAGE_KEY);
+                    setAuthenticated(false);
+                  }}
+                  className="text-slate-500 hover:text-slate-400 text-xs"
+                >
+                  Log out
+                </button>
+                <button
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  className="px-4 py-1.5 bg-slate-600 hover:bg-slate-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  {loading ? "Refreshing…" : "Refresh"}
+                </button>
+              </>
+            )}
+            {authRequired && !authenticated && (
               <button
-                onClick={() => {
-                  sessionStorage.removeItem(STORAGE_KEY);
-                  setAuthenticated(false);
-                  setData(null);
-                }}
-                className="text-slate-500 hover:text-slate-400 text-xs"
+                onClick={() => setShowOwnerForm(true)}
+                className="px-4 py-1.5 bg-slate-600 hover:bg-slate-500 text-white text-sm font-medium rounded-lg transition-colors"
               >
-                Log out
+                Owner login to update
               </button>
             )}
-            <button
-              onClick={handleRefresh}
-              disabled={loading}
-              className="px-4 py-1.5 bg-slate-600 hover:bg-slate-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              {loading ? "Refreshing…" : "Refresh"}
-            </button>
+            {!authRequired && (
+              <button
+                onClick={handleRefresh}
+                disabled={loading}
+                className="px-4 py-1.5 bg-slate-600 hover:bg-slate-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                {loading ? "Refreshing…" : "Refresh"}
+              </button>
+            )}
           </p>
         </header>
 
@@ -450,16 +498,53 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Hole positions button */}
-        <div className="mt-8 text-center">
-          <button
-            onClick={fetchHoles}
-            disabled={holesLoading}
-            className="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-300 rounded-lg transition-colors"
-          >
-            {holesLoading ? "Loading..." : "Check holes & progress"}
-          </button>
-        </div>
+        {/* Hole positions button - only for owner */}
+        {(authenticated || !authRequired) && (
+          <div className="mt-8 text-center">
+            <button
+              onClick={fetchHoles}
+              disabled={holesLoading}
+              className="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-300 rounded-lg transition-colors"
+            >
+              {holesLoading ? "Loading..." : "Check holes & progress"}
+            </button>
+          </div>
+        )}
+
+        {/* Owner login modal */}
+        {showOwnerForm && authRequired && !authenticated && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+            <div className="bg-slate-800 border border-slate-600 rounded-2xl p-6 max-w-md w-full">
+              <h2 className="text-lg font-semibold text-white mb-2">Owner login</h2>
+              <p className="text-slate-400 text-sm mb-3">Enter the access code to update the leaderboard.</p>
+              <input
+                type="password"
+                value={accessCode}
+                onChange={(e) => setAccessCode(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && verifyAccessCode()}
+                placeholder="Access code"
+                className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 mb-2"
+                autoComplete="off"
+              />
+              {authError && <p className="text-amber-400 text-sm mb-2">{authError}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={verifyAccessCode}
+                  disabled={!accessCode.trim()}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+                >
+                  Continue
+                </button>
+                <button
+                  onClick={() => { setShowOwnerForm(false); setAuthError(null); }}
+                  className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white font-medium rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PARTICIPANTS } from "@/config/participants";
-import { requireAuth } from "@/lib/auth";
+import { hasValidAuth } from "@/lib/auth";
+import { getHolesCache, setHolesCache } from "@/lib/cache";
 
 const RAPIDAPI_BASE = "https://live-golf-data.p.rapidapi.com";
 
@@ -39,8 +40,15 @@ function namesMatch(apiFirst: string, apiLast: string, configName: string): bool
 }
 
 export async function GET(request: NextRequest) {
-  const authError = requireAuth(request);
-  if (authError) return authError;
+  const isOwner = hasValidAuth(request);
+
+  if (!isOwner) {
+    const cached = await getHolesCache();
+    if (cached) {
+      return NextResponse.json(cached);
+    }
+    return NextResponse.json({ golferStatus: {}, lastUpdated: null });
+  }
 
   const apiKey = process.env.RAPIDAPI_KEY;
   if (!apiKey) {
@@ -134,10 +142,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({
+    const response = {
       golferStatus,
       lastUpdated: new Date().toISOString(),
-    });
+    };
+    await setHolesCache(response);
+    return NextResponse.json(response);
   } catch (err) {
     console.error("Holes API error:", err);
     return NextResponse.json(
