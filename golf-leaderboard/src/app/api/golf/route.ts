@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { PARTICIPANTS } from "@/config/participants";
 
 const RAPIDAPI_BASE = "https://live-golf-data.p.rapidapi.com";
@@ -85,7 +85,7 @@ function findGolferInScoreMap(
   rows: LeaderboardRow[]
 ): { name: string; score: number | null; parRelative: number | null; position: string; found: boolean; configName: string; roundScores?: (number | null)[] } | null {
   const configNorm = normalizeName(golferName);
-  for (const [apiKey, entry] of scoreMap.entries()) {
+  for (const [apiKey, entry] of Array.from(scoreMap.entries())) {
     if (apiKey === configNorm) {
       const row = rows.find((r) => normalizeName(`${r.firstName} ${r.lastName}`) === apiKey);
       return {
@@ -115,7 +115,7 @@ function findGolferInScoreMap(
   return null;
 }
 
-function parseParRelative(val: string | number | null | undefined): number | null {
+function parseParRelative(val: unknown): number | null {
   if (val == null) return null;
   if (typeof val === "number") return val;
   const s = String(val).trim();
@@ -150,7 +150,7 @@ function getScoreFromRow(row: LeaderboardRow): {
     for (const r of rounds) {
       const roundId = r.roundId ? (typeof r.roundId === "object" && "$numberInt" in r.roundId ? parseInt((r.roundId as { $numberInt?: string }).$numberInt ?? "", 10) : null) : null;
       const strokes = parseStrokes(r.strokes);
-      if (roundId >= 1 && roundId <= 4 && strokes != null) {
+      if (roundId != null && roundId >= 1 && roundId <= 4 && strokes != null) {
         roundScores[roundId - 1] = strokes;
       }
     }
@@ -198,7 +198,7 @@ async function fetchLeaderboard(tournId: string, year: number, apiKey: string, r
   return res.json();
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const apiKey = process.env.RAPIDAPI_KEY;
 
   if (!apiKey) {

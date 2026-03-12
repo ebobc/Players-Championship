@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const RAPIDAPI_BASE = "https://live-golf-data.p.rapidapi.com";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const apiKey = process.env.RAPIDAPI_KEY;
   if (!apiKey) {
     return NextResponse.json({ error: "No RAPIDAPI_KEY" }, { status: 500 });

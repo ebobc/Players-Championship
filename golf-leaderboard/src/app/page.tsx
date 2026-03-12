@@ -36,7 +36,7 @@ export default function Home() {
     Record<
       string,
       { currentHole: number | null; holesCompleted: number | null; currentRound: number | null }
-    >
+    > | null
   >(null);
   const [holesLoading, setHolesLoading] = useState(false);
 
