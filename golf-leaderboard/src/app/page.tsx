@@ -473,7 +473,7 @@ export default function Home() {
                             const strokes =
                               g.score ??
                               (g.roundScores?.some((r) => r !== null)
-                                ? (g.roundScores?.reduce((s, r) => s + (r ?? 0), 0) ?? null)
+                                ? (g.roundScores?.reduce((s: number, r) => s + (r ?? 0), 0) ?? null)
                                 : null);
                             const par = g.parRelative;
                             if (strokes != null && par != null) return `${strokes} (${formatScore(par)})`;
