@@ -41,6 +41,7 @@ export default function Home() {
   const [authenticated, setAuthenticated] = useState(false);
   const [accessCode, setAccessCode] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
   const [showOwnerForm, setShowOwnerForm] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -109,21 +110,30 @@ export default function Home() {
     const codeToUse = accessCode.trim();
     if (!codeToUse) return;
     setAuthError(null);
-    const res = await fetch("/api/auth/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", [AUTH_HEADER]: codeToUse },
-      body: JSON.stringify({ code: codeToUse }),
-    });
-    if (!res.ok) {
+    setAuthLoading(true);
+    try {
+      const res = await fetch("/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", [AUTH_HEADER]: codeToUse },
+        body: JSON.stringify({ code: codeToUse }),
+      });
       const json = await res.json();
-      setAuthError(json.error || "Invalid access code");
-      return;
+      if (!res.ok) {
+        setAuthError(
+          json.error === "Access control not configured"
+            ? "LEADERBOARD_SECRET is not set on the server. Add it to Vercel env vars or .env.local to use access codes."
+            : json.error || "Invalid access code"
+        );
+        return;
+      }
+      if (typeof window !== "undefined") localStorage.setItem(STORAGE_KEY, codeToUse);
+      setAuthenticated(true);
+      setShowOwnerForm(false);
+      setAccessCode("");
+      await handleRefresh(codeToUse);
+    } finally {
+      setAuthLoading(false);
     }
-    if (typeof window !== "undefined") localStorage.setItem(STORAGE_KEY, codeToUse);
-    setAuthenticated(true);
-    setShowOwnerForm(false);
-    setAccessCode("");
-    await handleRefresh(codeToUse);
   };
 
   const fetchData = async (includeRounds = false, headersOverride?: Record<string, string>) => {
@@ -253,9 +263,20 @@ export default function Home() {
       <main className="min-h-screen flex items-center justify-center p-6">
         <div className="text-center max-w-md">
           <h1 className="text-2xl font-bold text-white mb-2">Fantasy Draft Order</h1>
-          <p className="text-slate-400 mb-6">No data yet. Click Refresh and enter the access code to load.</p>
+          <p className="text-slate-400 mb-6">
+            {authRequired
+              ? "No data yet. Click Refresh and enter the access code to load."
+              : "No data yet. Click Refresh to load the leaderboard."}
+          </p>
           <button
-            onClick={() => setShowOwnerForm(true)}
+            onClick={() => {
+              if (authRequired) {
+                setAuthError(null);
+                setShowOwnerForm(true);
+              } else {
+                handleRefresh();
+              }
+            }}
             disabled={loading}
             className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
           >
@@ -279,10 +300,10 @@ export default function Home() {
                 <div className="flex gap-2">
                   <button
                     onClick={handleVerifyAndRefresh}
-                    disabled={!accessCode.trim()}
+                    disabled={!accessCode.trim() || authLoading}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
                   >
-                    Load
+                    {authLoading ? "Loading…" : "Load"}
                   </button>
                   <button
                     onClick={() => { setShowOwnerForm(false); setAuthError(null); }}
@@ -366,28 +387,23 @@ export default function Home() {
                     <h2 className="text-xl font-semibold text-white">{p.name}</h2>
                     <p className="text-slate-400 text-sm">
                       Draft pick #{p.rank} •{" "}
-                      {p.totalScore !== null
-                        ? `Total: ${p.totalScore} (${formatScore(p.totalParRelative)})`
+                      {p.totalParRelative !== null
+                        ? `Total: ${formatScore(p.totalParRelative)} to par`
                         : (() => {
                             const round4Started = data.tournament?.round4Started ?? false;
-                            const hasCompletedRound = (g: GolferScore) =>
-                              g.roundScores?.some((r) => r !== null) ?? false;
-                            const getGolferContribution = (g: GolferScore): number => {
+                            const hasParRelative = (g: GolferScore) => g.parRelative !== null;
+                            const getGolferParContrib = (g: GolferScore): number => {
+                              const par = g.parRelative ?? 0;
                               const rs = g.roundScores;
-                              if (!rs || rs.length < 4) return 0;
+                              if (!rs || rs.length < 4) return par;
                               const [r1, r2, r3, r4] = rs;
-                              if (r1 !== null && r2 !== null) {
-                                if (r3 === null && r4 === null && round4Started) {
-                                  return r1 + r2 + 100 + 100;
-                                }
-                                return r1 + r2 + (r3 ?? 0) + (r4 ?? 0);
-                              }
-                              return (r1 ?? 0) + (r2 ?? 0) + (r3 ?? 0) + (r4 ?? 0);
+                              const missedCut = r1 !== null && r2 !== null && r3 === null && r4 === null && round4Started;
+                              return missedCut ? par + 20 : par;
                             };
-                            const withRounds = p.golfers.filter(hasCompletedRound);
-                            const partial = withRounds.reduce((s, g) => s + getGolferContribution(g), 0);
-                            return withRounds.length > 0
-                              ? `${partial} (${withRounds.length}/4) • In progress`
+                            const withPar = p.golfers.filter(hasParRelative);
+                            const partial = withPar.reduce((s, g) => s + getGolferParContrib(g), 0);
+                            return withPar.length > 0
+                              ? `${formatScore(partial)} to par (${withPar.length}/4) • In progress`
                               : "In progress";
                           })()}
                     </p>
@@ -395,38 +411,32 @@ export default function Home() {
                 </div>
                 <div className="text-right">
                   <span className="text-2xl font-bold text-emerald-400">
-                    {p.totalScore !== null
-                      ? p.totalScore
+                    {p.totalParRelative !== null
+                      ? formatScore(p.totalParRelative)
                       : (() => {
                           const round4Started = data.tournament?.round4Started ?? false;
-                          const hasCompletedRound = (g: GolferScore) =>
-                            g.roundScores?.some((r) => r !== null) ?? false;
-                          const getGolferContribution = (g: GolferScore): number => {
+                          const hasParRelative = (g: GolferScore) => g.parRelative !== null;
+                          const getGolferParContrib = (g: GolferScore): number => {
+                            const par = g.parRelative ?? 0;
                             const rs = g.roundScores;
-                            if (!rs || rs.length < 4) return 0;
+                            if (!rs || rs.length < 4) return par;
                             const [r1, r2, r3, r4] = rs;
-                            if (r1 !== null && r2 !== null) {
-                              if (r3 === null && r4 === null && round4Started) {
-                                return r1 + r2 + 100 + 100;
-                              }
-                              return r1 + r2 + (r3 ?? 0) + (r4 ?? 0);
-                            }
-                            return (r1 ?? 0) + (r2 ?? 0) + (r3 ?? 0) + (r4 ?? 0);
+                            const missedCut = r1 !== null && r2 !== null && r3 === null && r4 === null && round4Started;
+                            return missedCut ? par + 20 : par;
                           };
-                          const withRounds = p.golfers.filter(hasCompletedRound);
-                          return withRounds.length > 0
-                            ? `${withRounds.reduce((s, g) => s + getGolferContribution(g), 0)}`
+                          const withPar = p.golfers.filter(hasParRelative);
+                          return withPar.length > 0
+                            ? formatScore(withPar.reduce((s, g) => s + getGolferParContrib(g), 0))
                             : "—";
                         })()}
                   </span>
                   <p className="text-slate-500 text-xs">
-                    Combined
-                    {p.totalScore === null &&
+                    To par
+                    {p.totalParRelative === null &&
                       (() => {
-                        const hasCompletedRound = (g: GolferScore) =>
-                          g.roundScores?.some((r) => r !== null) ?? false;
-                        const withRounds = p.golfers.filter(hasCompletedRound);
-                        return withRounds.length > 0 && ` (${withRounds.length}/4)`;
+                        const hasParRelative = (g: GolferScore) => g.parRelative !== null;
+                        const withPar = p.golfers.filter(hasParRelative);
+                        return withPar.length > 0 && ` (${withPar.length}/4)`;
                       })()}
                   </p>
                 </div>
@@ -461,7 +471,7 @@ export default function Home() {
                               R3:{g.roundScores[2] ?? "—"} R4:{g.roundScores[3] ?? "—"}
                             </span>
                             <span className="text-slate-600 ml-1">
-                              • Total adds as rounds complete
+                              • To par (missed cut: +10 R3/R4)
                             </span>
                           </div>
                         )}

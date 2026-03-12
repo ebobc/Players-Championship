@@ -334,17 +334,13 @@ export async function GET(request: NextRequest) {
       (e) => e.roundScores != null && e.roundScores[3] !== null
     );
 
-    const getGolferContribution = (g: GolferScore): number => {
+    const getGolferParContribution = (g: GolferScore): number => {
+      const par = g.parRelative ?? 0;
       const rs = g.roundScores;
-      if (!rs || rs.length < 4) return 0;
+      if (!rs || rs.length < 4) return par;
       const [r1, r2, r3, r4] = rs;
-      if (r1 !== null && r2 !== null) {
-        if (r3 === null && r4 === null && round4Started) {
-          return r1 + r2 + 100 + 100;
-        }
-        return r1 + r2 + (r3 ?? 0) + (r4 ?? 0);
-      }
-      return (r1 ?? 0) + (r2 ?? 0) + (r3 ?? 0) + (r4 ?? 0);
+      const missedCut = r1 !== null && r2 !== null && r3 === null && r4 === null && round4Started;
+      return missedCut ? par + 10 + 10 : par;
     };
 
     const participantResults: ParticipantResult[] = PARTICIPANTS.map((p) => {
@@ -361,47 +357,40 @@ export async function GET(request: NextRequest) {
         };
       });
 
-      const hasCompletedRound = (g: GolferScore) =>
-        g.roundScores?.some((r) => r !== null) ?? false;
-      const golfersWithRounds = golfers.filter(hasCompletedRound);
-      const allHaveR1R2 = golfersWithRounds.length === 4 &&
-        golfersWithRounds.every((g) => {
-          const rs = g.roundScores;
-          return rs && rs.length >= 2 && rs[0] !== null && rs[1] !== null;
-        });
-      const totalScore = allHaveR1R2
-        ? golfersWithRounds.reduce((sum, g) => sum + getGolferContribution(g), 0)
+      const hasParRelative = (g: GolferScore) => g.parRelative !== null;
+      const golfersWithPar = golfers.filter(hasParRelative);
+      const allHavePar = golfersWithPar.length === 4;
+      const totalParRelative = allHavePar
+        ? golfersWithPar.reduce((sum, g) => sum + getGolferParContribution(g), 0)
         : null;
-      const totalParRelative =
-        totalScore !== null && golfersWithRounds.length === 4
-          ? golfersWithRounds.reduce((sum, g) => sum + (g.parRelative ?? 0), 0)
-          : null;
 
       return {
         name: p.name,
         golfers,
-        totalScore,
+        totalScore: null,
         totalParRelative,
         rank: 0,
       };
     });
 
     participantResults.sort((a, b) => {
-      if (a.totalScore !== null && b.totalScore !== null) {
-        return a.totalScore - b.totalScore;
+      if (a.totalParRelative !== null && b.totalParRelative !== null) {
+        return a.totalParRelative - b.totalParRelative;
       }
-      if (a.totalScore === null && b.totalScore === null) {
-        const partialA = a.golfers.reduce(
-          (sum, g) => sum + getGolferContribution(g),
-          0
-        );
-        const partialB = b.golfers.reduce(
-          (sum, g) => sum + getGolferContribution(g),
-          0
-        );
+      if (a.totalParRelative === null && b.totalParRelative === null) {
+        const getContrib = (g: GolferScore) => {
+          const par = g.parRelative ?? 0;
+          const rs = g.roundScores;
+          if (!rs || rs.length < 4) return par;
+          const [r1, r2, r3, r4] = rs;
+          const missedCut = r1 !== null && r2 !== null && r3 === null && r4 === null && round4Started;
+          return missedCut ? par + 20 : par;
+        };
+        const partialA = a.golfers.reduce((sum, g) => sum + getContrib(g), 0);
+        const partialB = b.golfers.reduce((sum, g) => sum + getContrib(g), 0);
         return partialA - partialB;
       }
-      return a.totalScore === null ? 1 : -1;
+      return a.totalParRelative === null ? 1 : -1;
     });
 
     participantResults.forEach((p, i) => {
