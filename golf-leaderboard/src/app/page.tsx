@@ -5,9 +5,8 @@ import { useEffect, useState } from "react";
 const AUTH_HEADER = "x-access-code";
 const STORAGE_KEY = "leaderboard_access_code";
 
-function getAuthHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const code = localStorage.getItem(STORAGE_KEY);
+function getAuthHeaders(codeOverride?: string): Record<string, string> {
+  const code = codeOverride ?? (typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null);
   return code ? { [AUTH_HEADER]: code } : {};
 }
 
@@ -45,6 +44,7 @@ export default function Home() {
   const [showOwnerForm, setShowOwnerForm] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [golferStatus, setGolferStatus] = useState<
     Record<
@@ -69,22 +69,20 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/golf")
-      .then((r) => r.json())
-      .then((json) => {
-        if (json.participants?.length) {
-          setData(json);
+    Promise.all([
+      fetch("/api/golf").then((r) => r.json()),
+      fetch("/api/golf/holes").then((r) => r.json()),
+    ])
+      .then(([golfJson, holesJson]) => {
+        if (golfJson?.participants?.length) {
+          setData(golfJson);
+        }
+        if (holesJson?.golferStatus && Object.keys(holesJson.golferStatus).length > 0) {
+          setGolferStatus(holesJson.golferStatus);
         }
       })
-      .catch(() => {});
-    fetch("/api/golf/holes")
-      .then((r) => r.json())
-      .then((json) => {
-        if (json.golferStatus && Object.keys(json.golferStatus).length > 0) {
-          setGolferStatus(json.golferStatus);
-        }
-      })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setInitialLoadDone(true));
   }, []);
 
   const verifyAccessCode = async () => {
@@ -108,14 +106,31 @@ export default function Home() {
   };
 
   const handleVerifyAndRefresh = async () => {
-    const ok = await verifyAccessCode();
-    if (ok) await handleRefresh();
+    const codeToUse = accessCode.trim();
+    if (!codeToUse) return;
+    setAuthError(null);
+    const res = await fetch("/api/auth/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", [AUTH_HEADER]: codeToUse },
+      body: JSON.stringify({ code: codeToUse }),
+    });
+    if (!res.ok) {
+      const json = await res.json();
+      setAuthError(json.error || "Invalid access code");
+      return;
+    }
+    if (typeof window !== "undefined") localStorage.setItem(STORAGE_KEY, codeToUse);
+    setAuthenticated(true);
+    setShowOwnerForm(false);
+    setAccessCode("");
+    await handleRefresh(codeToUse);
   };
 
-  const fetchData = async (includeRounds = false) => {
+  const fetchData = async (includeRounds = false, headersOverride?: Record<string, string>) => {
     try {
       const url = includeRounds ? "/api/golf?rounds=1" : "/api/golf";
-      const res = await fetch(url, { headers: getAuthHeaders() });
+      const headers = headersOverride ?? getAuthHeaders();
+      const res = await fetch(url, { headers });
       const json = await res.json();
       if (res.status === 401) {
         if (typeof window !== "undefined") localStorage.removeItem(STORAGE_KEY);
@@ -156,10 +171,11 @@ export default function Home() {
     }
   };
 
-  const fetchHoles = async () => {
+  const fetchHoles = async (headersOverride?: Record<string, string>) => {
     setHolesLoading(true);
     try {
-      const res = await fetch("/api/golf/holes", { headers: getAuthHeaders() });
+      const headers = headersOverride ?? getAuthHeaders();
+      const res = await fetch("/api/golf/holes", { headers });
       const json = await res.json();
       if (res.status === 401) {
         if (typeof window !== "undefined") localStorage.removeItem(STORAGE_KEY);
@@ -174,12 +190,13 @@ export default function Home() {
     }
   };
 
-  const handleRefresh = async () => {
+  const handleRefresh = async (codeOverride?: string) => {
     setLoading(true);
     setError(null);
-    await fetchData();
-    await fetchData(true);
-    await fetchHoles();
+    const headers = getAuthHeaders(codeOverride);
+    await fetchData(false, headers);
+    await fetchData(true, headers);
+    await fetchHoles(headers);
     setLoading(false);
   };
 
@@ -212,13 +229,21 @@ export default function Home() {
           <button
             onClick={() => {
               setLoading(true);
-              fetchData();
+              fetchData(false);
             }}
             className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg transition-colors"
           >
             Retry
           </button>
         </div>
+      </main>
+    );
+  }
+
+  if (!initialLoadDone) {
+    return (
+      <main className="min-h-screen flex items-center justify-center p-6">
+        <div className="inline-block w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-400 rounded-full animate-spin" />
       </main>
     );
   }
@@ -488,7 +513,7 @@ export default function Home() {
           </button>
           {(authenticated || !authRequired) && (
             <button
-              onClick={fetchHoles}
+              onClick={() => fetchHoles()}
               disabled={holesLoading}
               className="block w-full mx-auto mt-2 px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-300 rounded-lg transition-colors"
             >
