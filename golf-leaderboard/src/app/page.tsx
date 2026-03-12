@@ -99,10 +99,17 @@ export default function Home() {
       setAuthenticated(true);
       setShowOwnerForm(false);
       setAccessCode("");
+      return true;
     } else {
       const json = await res.json();
       setAuthError(json.error || "Invalid access code");
+      return false;
     }
+  };
+
+  const handleVerifyAndRefresh = async () => {
+    const ok = await verifyAccessCode();
+    if (ok) await handleRefresh();
   };
 
   const fetchData = async (includeRounds = false) => {
@@ -221,12 +228,19 @@ export default function Home() {
       <main className="min-h-screen flex items-center justify-center p-6">
         <div className="text-center max-w-md">
           <h1 className="text-2xl font-bold text-white mb-2">Fantasy Draft Order</h1>
-          <p className="text-slate-400 mb-6">No data yet. The owner needs to load the leaderboard.</p>
-          {authRequired && !authenticated ? (
-            showOwnerForm ? (
-              <div className="bg-slate-800/50 border border-slate-600 rounded-2xl p-6 text-left">
-                <h2 className="text-lg font-semibold text-white mb-2">Owner login</h2>
-                <p className="text-slate-400 text-sm mb-3">Enter the access code to load and update the leaderboard.</p>
+          <p className="text-slate-400 mb-6">No data yet. Click Refresh and enter the access code to load.</p>
+          <button
+            onClick={() => setShowOwnerForm(true)}
+            disabled={loading}
+            className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+          >
+            Refresh
+          </button>
+          {showOwnerForm && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+              <div className="bg-slate-800 border border-slate-600 rounded-2xl p-6 max-w-md w-full">
+                <h2 className="text-lg font-semibold text-white mb-2">Access code</h2>
+                <p className="text-slate-400 text-sm mb-3">Enter the access code to load the leaderboard.</p>
                 <input
                   type="password"
                   value={accessCode}
@@ -239,11 +253,11 @@ export default function Home() {
                 {authError && <p className="text-amber-400 text-sm mb-2">{authError}</p>}
                 <div className="flex gap-2">
                   <button
-                    onClick={verifyAccessCode}
+                    onClick={handleVerifyAndRefresh}
                     disabled={!accessCode.trim()}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
                   >
-                    Continue
+                    Load
                   </button>
                   <button
                     onClick={() => { setShowOwnerForm(false); setAuthError(null); }}
@@ -253,22 +267,7 @@ export default function Home() {
                   </button>
                 </div>
               </div>
-            ) : (
-              <button
-                onClick={() => setShowOwnerForm(true)}
-                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg transition-colors"
-              >
-                Owner login to load
-              </button>
-            )
-          ) : (
-            <button
-              onClick={handleRefresh}
-              disabled={loading}
-              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
-            >
-              Load Leaderboard
-            </button>
+            </div>
           )}
         </div>
       </main>
@@ -300,43 +299,17 @@ export default function Home() {
           <p className="text-slate-400 text-lg">
             {data.tournament?.name || "PGA Players Championship"} • Lowest combined score = 1st pick
           </p>
-          <p className="text-slate-500 text-sm mt-2 flex items-center justify-center gap-4 flex-wrap">
-            <span>Last updated {data.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString() : "—"}</span>
+          <p className="text-slate-500 text-sm mt-2">
+            Last updated {data.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString() : "—"}
             {authRequired && authenticated && (
-              <>
-                <button
-                  onClick={() => {
-                    localStorage.removeItem(STORAGE_KEY);
-                    setAuthenticated(false);
-                  }}
-                  className="text-slate-500 hover:text-slate-400 text-xs"
-                >
-                  Log out
-                </button>
-                <button
-                  onClick={handleRefresh}
-                  disabled={loading}
-                  className="px-4 py-1.5 bg-slate-600 hover:bg-slate-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
-                >
-                  {loading ? "Refreshing…" : "Refresh"}
-                </button>
-              </>
-            )}
-            {authRequired && !authenticated && (
               <button
-                onClick={() => setShowOwnerForm(true)}
-                className="px-4 py-1.5 bg-slate-600 hover:bg-slate-500 text-white text-sm font-medium rounded-lg transition-colors"
+                onClick={() => {
+                  localStorage.removeItem(STORAGE_KEY);
+                  setAuthenticated(false);
+                }}
+                className="ml-2 text-slate-500 hover:text-slate-400 text-xs"
               >
-                Owner login to update
-              </button>
-            )}
-            {!authRequired && (
-              <button
-                onClick={handleRefresh}
-                disabled={loading}
-                className="px-4 py-1.5 bg-slate-600 hover:bg-slate-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
-              >
-                {loading ? "Refreshing…" : "Refresh"}
+                Log out
               </button>
             )}
           </p>
@@ -498,30 +471,43 @@ export default function Home() {
           ))}
         </div>
 
-        {/* Hole positions button - only for owner */}
-        {(authenticated || !authRequired) && (
-          <div className="mt-8 text-center">
+        {/* Bottom: Refresh button - prompts for password when clicked if not authenticated */}
+        <div className="mt-8 text-center space-y-3">
+          <button
+            onClick={() => {
+              if (authenticated || !authRequired) {
+                handleRefresh();
+              } else {
+                setShowOwnerForm(true);
+              }
+            }}
+            disabled={loading}
+            className="px-6 py-2.5 bg-slate-600 hover:bg-slate-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
+          >
+            {loading ? "Refreshing…" : "Refresh"}
+          </button>
+          {(authenticated || !authRequired) && (
             <button
               onClick={fetchHoles}
               disabled={holesLoading}
-              className="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-300 rounded-lg transition-colors"
+              className="block w-full mx-auto mt-2 px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-300 rounded-lg transition-colors"
             >
               {holesLoading ? "Loading..." : "Check holes & progress"}
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Owner login modal */}
-        {showOwnerForm && authRequired && !authenticated && (
+        {/* Password prompt modal - when Refresh clicked without auth */}
+        {showOwnerForm && authRequired && !authenticated && data && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
             <div className="bg-slate-800 border border-slate-600 rounded-2xl p-6 max-w-md w-full">
-              <h2 className="text-lg font-semibold text-white mb-2">Owner login</h2>
-              <p className="text-slate-400 text-sm mb-3">Enter the access code to update the leaderboard.</p>
+              <h2 className="text-lg font-semibold text-white mb-2">Access code</h2>
+              <p className="text-slate-400 text-sm mb-3">Enter the access code to refresh the leaderboard.</p>
               <input
                 type="password"
                 value={accessCode}
                 onChange={(e) => setAccessCode(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && verifyAccessCode()}
+                onKeyDown={(e) => e.key === "Enter" && handleVerifyAndRefresh()}
                 placeholder="Access code"
                 className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 mb-2"
                 autoComplete="off"
@@ -529,11 +515,11 @@ export default function Home() {
               {authError && <p className="text-amber-400 text-sm mb-2">{authError}</p>}
               <div className="flex gap-2">
                 <button
-                  onClick={verifyAccessCode}
+                  onClick={handleVerifyAndRefresh}
                   disabled={!accessCode.trim()}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium rounded-lg transition-colors"
                 >
-                  Continue
+                  Refresh
                 </button>
                 <button
                   onClick={() => { setShowOwnerForm(false); setAuthError(null); }}
