@@ -7,7 +7,7 @@ const STORAGE_KEY = "leaderboard_access_code";
 
 function getAuthHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
-  const code = sessionStorage.getItem(STORAGE_KEY);
+  const code = localStorage.getItem(STORAGE_KEY);
   return code ? { [AUTH_HEADER]: code } : {};
 }
 
@@ -59,7 +59,7 @@ export default function Home() {
       .then((r) => r.json())
       .then(({ authRequired }) => {
         setAuthRequired(authRequired);
-        if (authRequired && typeof window !== "undefined" && sessionStorage.getItem(STORAGE_KEY)) {
+        if (authRequired && typeof window !== "undefined" && localStorage.getItem(STORAGE_KEY)) {
           setAuthenticated(true);
         } else if (!authRequired) {
           setAuthenticated(true);
@@ -95,7 +95,7 @@ export default function Home() {
       body: JSON.stringify({ code: accessCode }),
     });
     if (res.ok) {
-      if (typeof window !== "undefined") sessionStorage.setItem(STORAGE_KEY, accessCode);
+      if (typeof window !== "undefined") localStorage.setItem(STORAGE_KEY, accessCode);
       setAuthenticated(true);
       setShowOwnerForm(false);
       setAccessCode("");
@@ -111,7 +111,7 @@ export default function Home() {
       const res = await fetch(url, { headers: getAuthHeaders() });
       const json = await res.json();
       if (res.status === 401) {
-        if (typeof window !== "undefined") sessionStorage.removeItem(STORAGE_KEY);
+        if (typeof window !== "undefined") localStorage.removeItem(STORAGE_KEY);
         setAuthenticated(false);
         setAuthError(json.error || "Access code required");
         return;
@@ -155,7 +155,7 @@ export default function Home() {
       const res = await fetch("/api/golf/holes", { headers: getAuthHeaders() });
       const json = await res.json();
       if (res.status === 401) {
-        if (typeof window !== "undefined") sessionStorage.removeItem(STORAGE_KEY);
+        if (typeof window !== "undefined") localStorage.removeItem(STORAGE_KEY);
         setAuthenticated(false);
         return;
       }
@@ -306,7 +306,7 @@ export default function Home() {
               <>
                 <button
                   onClick={() => {
-                    sessionStorage.removeItem(STORAGE_KEY);
+                    localStorage.removeItem(STORAGE_KEY);
                     setAuthenticated(false);
                   }}
                   className="text-slate-500 hover:text-slate-400 text-xs"
