@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --grass: #2d5a27;
+  --fairway: #3d7a35;
+  --bunker: #e8d5a3;
+  --water: #4a90d9;
+  --green: #1a472a;
+}
+
+body {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  min-height: 100vh;
+}

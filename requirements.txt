@@ -1,0 +1,7 @@
+# Python 3.9.10+ required for py-clob-client
+py-clob-client>=0.20.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+web3>=6.0.0
+py-builder-relayer-client>=0.0.1
+py-builder-signing-sdk
